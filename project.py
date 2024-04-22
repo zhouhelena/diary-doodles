@@ -10,9 +10,32 @@ import torch
 from transformers import AutoTokenizer, AutoModel
 import numpy as np
 from scipy.cluster.vq import kmeans2
+from transformers import AutoTokenizer, BitsAndBytesConfig
+from llava.model import LlavaLlamaForCausalLM
+import torch
+from io import BytesIO
+from llava.utils import disable_torch_init
+from transformers import TextStreamer
 
 # TODO: Need device to be GPU
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+def load_image_uploader(label):
+    uploaded_file = st.file_uploader(label=label)
+    if uploaded_file is not None:
+        image_data = uploaded_file.getvalue()
+        st.image(uploaded_file)
+        return image_data
+    return None
+
+def detect_text(image_data):
+    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'google-vision-credentials.json'
+    client = vision.ImageAnnotatorClient()
+    image = vision.Image(content=image_data)
+
+    response = client.text_detection(image=image)
+    texts = response.text_annotations
+    return texts[0].description if texts else ""
 
 def get_text_embeddings(text):
     tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-L6-v2")
@@ -46,22 +69,20 @@ def split_text_by_meaning(text, num_clusters=4):
 
     return [' '.join(clustered_sentences[i]) for i in range(num_clusters)]
 
-def detect_text(image_data):
-    os.environ['GOOGLE_APPLICATION_CREDENTIALS'] = 'google-vision-credentials.json'
-    client = vision.ImageAnnotatorClient()
-    image = vision.Image(content=image_data)
+def caption_image(image_data, prompt):
+    image = Image.open(BytesIO(image_data)).convert('RGB')
+    disable_torch_init()
+    image_tensor = image_processor.preprocess(image, return_tensors='pt')['pixel_values'].half().to('cuda')
 
-    response = client.text_detection(image=image)
-    texts = response.text_annotations
-    return texts[0].description if texts else ""
+    # Constructing prompt
+    inp = f"{DEFAULT_IM_START_TOKEN}{DEFAULT_IMAGE_TOKEN}{DEFAULT_IM_END_TOKEN}\n{prompt}"
+    input_ids = tokenizer.encode(inp, return_tensors="pt").to('cuda')
 
-def load_image_uploader(label):
-    uploaded_file = st.file_uploader(label=label)
-    if uploaded_file is not None:
-        image_data = uploaded_file.getvalue()
-        st.image(uploaded_file)
-        return image_data
-    return None
+    # Generating text description
+    output_ids = model.generate(input_ids, images=image_tensor, do_sample=True, temperature=0.2, max_new_tokens=1024)
+    outputs = tokenizer.decode(output_ids[0, input_ids.shape[1]:]).strip()
+
+    return outputs
 
 def generate_image_from_text(prompt):
     pipe = AutoPipelineForText2Image.from_pretrained("stabilityai/sdxl-turbo", torch_dtype=torch.float16, variant="fp16")
@@ -72,6 +93,7 @@ def generate_image_from_text(prompt):
     
 def main():
     st.title('Diary Doodles')
+    # print(torch.backends.cudnn.enabled)
     print(device)
     
     diary_image = load_image_uploader('Select an image of your diary')
@@ -80,6 +102,15 @@ def main():
     # TODO: Add image pre-processing steps
 
     if st.button('Turn into a picture book'):
+
+        # Process person image
+        if person_image is not None:
+            st.write('Analyzing person...')
+            person_description = caption_image(person_image, "Describe the person's appearance and clothing in extreme detail. Ignore the location.")
+            st.write('Person Description:')
+            st.write(person_description)
+
+        # Process diary image
         if diary_image is not None:
             st.write('Extracting text...')
             extracted_text = detect_text(diary_image)
@@ -90,9 +121,10 @@ def main():
             scenes = split_text_by_meaning(extracted_text)
 
             for i, scene in enumerate(scenes):
-                st.write(f'Scene {i+1}: {scene}')
+                scene_prompt = f"The person is {person_description}. Describe this scene: {scene}"
+                st.write(f'Scene {i+1}: {scene_prompt}')
                 st.write('Generating image for this scene...')
-                generated_image = generate_image_from_text(scene)
+                generated_image = generate_image_from_text(scene_prompt)
                 st.image(generated_image, caption=f'Scene {i+1}')
 
         else:
