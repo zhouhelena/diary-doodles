@@ -3,3 +3,7 @@ torch
 torchvision
 torchaudio
 google-cloud-vision
+diffusers
+nltk
+scipy
+transformers
