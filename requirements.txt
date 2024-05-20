@@ -7,3 +7,4 @@ diffusers
 nltk
 scipy
 transformers
+google-cloud-aiplatform
