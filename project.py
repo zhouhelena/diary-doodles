@@ -123,7 +123,8 @@ def summarize_diary(diary_text):
     response = model.predict(
         f"""Diary Text: {diary_text}
         
-        Q: Summarize the diary into exactly four short sentences that capture the main events or themes in order, focusing on actions and and visually engaging details suitable for illustrating in a picture book.""",
+        Q: Summarize the diary into exactly four short sentences that capture the main events or themes in order. Focus each sentence on exactly one action and visually engaging details suitable for illustrating in a picture book. For example, 'Ate breakfast. Went to computer science class. Went to the gym. Went to sleep.'. 
+        """,
         temperature=0.5,
         max_output_tokens=256,
         top_p=0.9,
@@ -145,7 +146,7 @@ def caption_image(image_data, image_filename):
     response = gemini_model.generate_content(
         [
             Part.from_uri(image_uri, mime_type="image/jpeg"),
-            "In exactly one short phrase, describe the person's appearance and clothing in detail. Ignore any objects the person may be wearing or carrying, and ignore the location. For example, 'a girl with black hair and brown eyes wearing a white dress'.",
+            "In under ten words total, describe the person's appearance and clothing. Ignore any objects the person may be wearing or carrying, and ignore the location. For example, 'a girl with black hair wearing a white dress'.",
         ]
     )
     print(response)
@@ -210,7 +211,7 @@ def main():
         # Process person image
         if person_image is not None:
             st.write('Analyzing person...')
-            person_description = caption_image(person_image, 'diary.jpg')
+            person_description = caption_image(person_image, 'diary.jpg').lower()
             st.write('Person Description:')
             st.write(person_description)
 
@@ -222,7 +223,9 @@ def main():
             st.write(extracted_text)
 
             st.write('Analyzing text and splitting into scenes...')
-            scenes = nltk.tokenize.sent_tokenize(summarize_diary(extracted_text))
+            summary = summarize_diary(extracted_text)
+            print(summary)
+            scenes = nltk.tokenize.sent_tokenize(summary)
 
             for i, scene in enumerate(scenes):
                 scene_prompt = f"In a cartoon picture book style, depict {person_description} in this scene: {scene}"
